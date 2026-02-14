@@ -1,0 +1,344 @@
+/* PATCH: Pro-Responsive-Table#v2.12-Final ( renderer~user-choice-stable ) */
+import { STATE } from './state.js';
+import { CONFIG } from './config.js';
+import { UTILS } from './utils.js';
+import { DATA_SERVICE } from './api.js';
+
+const C = CONFIG.COLORS;
+const I = CONFIG.ICONS;
+
+export const RENDERER = {
+    draw: () => {
+        if (STATE.view === 'MENU') RENDERER.menu();
+        else if (STATE.view === 'INPUT') RENDERER.input();
+        else if (STATE.view === 'TABLE') RENDERER.table();
+        else if (STATE.view === 'DETAILS') RENDERER.details();
+    },
+
+    // --- MENU ---
+    menu: () => {
+        UTILS.clear();
+        const w = 60; 
+        const totalW = process.stdout.columns || 80;
+        const P = " ".repeat(Math.max(0, Math.floor((totalW - w) / 2)));
+        const line = "═".repeat(w - 2);
+
+        console.log("\n".repeat(2));
+        console.log(`${P}${C.C}╔${line}╗${C.R}`);
+        console.log(`${P}${C.C}║${C.R}${UTILS.center(`${C.W_B}⚡  SOLANA WAR ROOM v2.12 ⚡${C.R}`, w-2)}${C.C}║${C.R}`);
+        console.log(`${P}${C.C}╠${line}╣${C.R}`);
+        
+        const rpcColor = STATE.rpcStatus.includes("ONLINE") ? C.G : C.Err;
+        const sysInfo = `RPC: ${rpcColor}●${C.R}  |  MODE: ${C.W}${STATE.mode || 'IDLE'}${C.R}`;
+        console.log(`${P}${C.C}║${C.R}${UTILS.center(sysInfo, w - 2)}${C.C}║${C.R}`);
+        console.log(`${P}${C.C}╟${"─".repeat(w-2)}╢${C.R}`);
+
+        CONFIG.MENUS.forEach((item, idx) => {
+            const isSel = idx === STATE.menuIdx;
+            if (isSel) {
+                console.log(`${P}${C.C}║${C.BG_Sel}${UTILS.center(item.name, w-2)}${C.R}${C.C}║${C.R}`);
+                console.log(`${P}${C.C}║${C.R}${UTILS.center(`${C.D}└─ ${item.desc}${C.R}`, w-2)}${C.C}║${C.R}`);
+            } else {
+                console.log(`${P}${C.C}║${C.R}${UTILS.center(item.name, w-2)}${C.C}║${C.R}`);
+            }
+        });
+
+        console.log(`${P}${C.C}╚${line}╝${C.R}`);
+        console.log(`\n${UTILS.center(`${C.D}Use [↑/↓] to Navigate  •  [ENTER] to Initialize${C.R}`, totalW)}`);
+    },
+
+    // --- INPUT (SAYA KEMBALIKAN AGAR TIDAK CRASH) ---
+    input: () => {
+        UTILS.clear();
+        const width = 60, totalW = process.stdout.columns || 80;
+        const P = " ".repeat(Math.max(0, Math.floor((totalW - width) / 2)));
+        console.log("\n".repeat(5));
+        console.log(`${P}${C.C}╔${"═".repeat(width)}╗${C.R}`);
+        console.log(`${P}${C.C}║${C.R}${UTILS.center(`${I.EYE} MANUAL TARGET ACQUISITION`, width-2)}${C.C}║${C.R}`);
+        console.log(`${P}${C.C}╚${"═".repeat(width)}╝${C.R}`);
+        console.log("\n" + UTILS.center(`${C.W}Paste Contract Address:${C.R}`, totalW) + "\n");
+    },
+
+    // --- TABLE (PROFESSIONAL & RESPONSIVE REWRITE) ---
+    table: () => {
+        UTILS.clear();
+        const totalW = process.stdout.columns || 100;
+        
+        // --- 1. HEADER STATUS ---
+        let modeLabel = STATE.mode === 'NEW' ? "FRESH MINTS" : STATE.mode;
+        const headerText = ` ${I.ROCKET} MONITORING: ${modeLabel} `;
+        const filler = "═".repeat(Math.max(0, totalW - UTILS.strip(headerText).length - 2));
+        
+        console.log(`${C.C}╔${headerText}${filler}╗${C.R}`);
+        
+        const status = STATE.loading ? `${C.Y}SCANNING..${C.R}` : `${C.G}LIVE${C.R}`;
+        const items = `${C.W}${STATE.data.length}${C.R}`;
+        const statusLine = ` STATUS: ${status} │ FOUND: ${items} │ UPDATED: ${STATE.lastUpdated || '-'}`;
+        const statusPad = " ".repeat(Math.max(0, totalW - UTILS.strip(statusLine).length - 2));
+
+        console.log(`${C.C}║${C.R}${statusLine}${statusPad}${C.C}║${C.R}`);
+        
+        if (STATE.error) {
+            console.log(`${C.C}╠${"═".repeat(totalW - 2)}╣${C.R}`);
+            console.log(`${C.C}║${C.R}${UTILS.center(`${C.Err}${I.WARN} ERROR: ${STATE.error}${C.R}`, totalW - 2)}${C.C}║${C.R}`);
+            console.log(`${C.C}╚${"═".repeat(totalW - 2)}╝${C.R}`);
+            return;
+        }
+
+        // --- 2. DYNAMIC COLUMN CALCULATION ---
+        const isSol = STATE.mode === 'SOLANA';
+        
+        // Fixed widths for metrics (Agar angka tidak goyang)
+        const w = {
+            no: 4,
+            ch: isSol ? 0 : 5,
+            pr: 14, // Price butuh lebar utk angka kecil
+            li: 11,
+            fdv: 11,
+            ag: 6
+        };
+
+        // Hitung sisa ruang untuk Text (Symbol & Name)
+        const separatorCount = isSol ? 7 : 8;
+        const usedWidth = w.no + w.ch + w.pr + w.li + w.fdv + w.ag + (separatorCount * 3) + 2; 
+        const remaining = Math.max(20, totalW - usedWidth);
+
+        // Alokasi Sisa: 30% Symbol, 70% Name
+        w.sy = Math.floor(remaining * 0.30);
+        w.nm = Math.floor(remaining * 0.70);
+
+        // Helper untuk Padding Kiri (Untuk angka rata kanan)
+        const padLeft = (text, len) => {
+            const clean = UTILS.strip(text);
+            const pad = " ".repeat(Math.max(0, len - clean.length));
+            return pad + text;
+        };
+
+        // Helper Render Row
+        const printRow = (c1, c2, c3, c4, c5, c6, c7, c8, bg = "", textC = C.R) => {
+            // Logic menyembunyikan Chain column
+            const colChain = isSol ? "" : `│ ${c2} `;
+            const line = `│ ${c1} ${colChain}│ ${c3} │ ${c4} │ ${c5} │ ${c6} │ ${c7} │ ${c8} `;
+            const pad = " ".repeat(Math.max(0, totalW - UTILS.strip(line).length - 1));
+            console.log(`${C.C}║${bg}${textC}${line}${pad}${C.R}${C.C}║${C.R}`);
+        };
+
+        console.log(`${C.C}╠${"═".repeat(totalW - 2)}╣${C.R}`);
+
+        // --- 3. TABLE HEADERS ---
+        const h_no = UTILS.padRight("#", w.no);
+        const h_ch = UTILS.padRight("CHAIN", w.ch);
+        const h_sy = UTILS.padRight("SYMBOL", w.sy);
+        const h_pr = UTILS.padRight("PRICE ($)", w.pr);
+        const h_li = UTILS.padRight("LIQ", w.li);
+        const h_fdv = UTILS.padRight("FDV", w.fdv);
+        const h_ag = UTILS.padRight("AGE", w.ag);
+        const h_nm = UTILS.padRight("NAME", w.nm);
+
+        // Header dengan Background Dark Grey
+        printRow(h_no, h_ch, h_sy, h_pr, h_li, h_fdv, h_ag, h_nm, C.BG_Head, C.W_B);
+        console.log(`${C.C}╟${"─".repeat(totalW - 2)}╢${C.R}`);
+
+        // --- 4. DATA ROWS ---
+        const startIdx = STATE.tablePage * STATE.itemsPerPage;
+        const visible = STATE.data.slice(startIdx, startIdx + STATE.itemsPerPage);
+
+        visible.forEach((item, i) => {
+            const isSel = i === STATE.tableIdx;
+            
+            // Format Data
+            const idxStr = UTILS.padRight((startIdx + i + 1).toString(), w.no);
+            
+            // Chain & Symbol (Left Align)
+            const chainStr = isSol ? "" : UTILS.padRight(item.Chain.substring(0,3).toUpperCase(), w.ch);
+            const symStr = UTILS.padRight(item.Symbol.substring(0, w.sy), w.sy);
+            
+            // Numbers (Right Align logic untuk kesan profesional)
+            const priceVal = UTILS.formatUSD(item.Price);
+            const liqVal = `$${UTILS.formatNumber(item.Liquidity)}`;
+            const fdvVal = `$${UTILS.formatNumber(item.FDV)}`;
+            
+            // Colors
+            const liqColor = item.Liquidity < 1000 ? C.Err : (item.Liquidity > 50000 ? C.G : C.W);
+            
+            // Pad Left untuk angka (Rata Kanan)
+            const priceStr = padLeft(priceVal, w.pr);
+            const liqStr   = padLeft(`${liqColor}${liqVal}${C.R}`, w.li); 
+            const fdvStr   = padLeft(`${C.G}${fdvVal}${C.R}`, w.fdv);
+            
+            const ageStr = UTILS.padRight(UTILS.timeSince(item.Age), w.ag);
+            const nameStr = UTILS.padRight(item.Name.substring(0, w.nm), w.nm);
+
+            // Print
+            if (isSel) {
+                const s_liq = padLeft(liqVal, w.li);
+                const s_fdv = padLeft(fdvVal, w.fdv);
+                printRow(idxStr, chainStr, symStr, priceVal.padStart(w.pr), s_liq, s_fdv, ageStr, nameStr, C.BG_Sel, C.K);
+            } else {
+                printRow(idxStr, chainStr, symStr, priceStr, liqStr, fdvStr, ageStr, nameStr);
+            }
+        });
+
+        // Fill Empty Rows
+        for(let i = visible.length; i < STATE.itemsPerPage; i++) {
+             console.log(`${C.C}║${C.R}${" ".repeat(totalW - 2)}${C.C}║${C.R}`);
+        }
+        
+        console.log(`${C.C}╚${"═".repeat(totalW - 2)}╝${C.R}`);
+        console.log(UTILS.center(`${C.D}[←/→] PAGE | [↑/↓] SELECT | [R] REFRESH | [ENTER] ANALYZE | [ESC] BACK${C.R}`, totalW));
+    },
+
+    // --- DETAILS (TETAP SAMA SEPERTI v2.10) ---
+    details: () => {
+        UTILS.clear();
+        const row = STATE.currentRow; if (!row) return;
+        const totalW = process.stdout.columns || 80;
+        const W = 78; 
+        const P = " ".repeat(Math.max(0, Math.floor((totalW - W) / 2)));
+        
+        const analysis = DATA_SERVICE.analyzeToken(row);
+
+        let grade = 'F'; 
+        if (analysis.score >= 90) grade = 'S'; 
+        else if (analysis.score >= 80) grade = 'A'; 
+        else if (analysis.score >= 65) grade = 'B'; 
+        else if (analysis.score >= 50) grade = 'C'; 
+        else if (analysis.score >= 30) grade = 'D';
+
+        const gradeColor = grade === 'S' || grade === 'A' ? C.G : (grade === 'F' ? C.Err : C.Y);
+        
+        const drawBar = (pct, len = 10, fillC = C.G, emptyC = C.D) => {
+            const filledLen = Math.round((pct / 100) * len);
+            const filled = "█".repeat(filledLen);
+            const empty = "░".repeat(Math.max(0, len - filledLen));
+            return `${fillC}${filled}${C.R}${emptyC}${empty}${C.R}`;
+        };
+
+        const printLine = (str) => {
+            const clean = UTILS.strip(str);
+            const padLen = Math.max(0, W - 2 - clean.length);
+            console.log(`${P}${C.C}║${C.R} ${str}${" ".repeat(padLen)}${C.C}║${C.R}`);
+        };
+
+        const printCenter = (str, bg = "") => {
+             const inner = UTILS.center(str, W - 2);
+             console.log(`${P}${C.C}║${bg}${inner}${C.R}${C.C}║${C.R}`);
+        };
+
+        const divider = () => console.log(`${P}${C.C}╠${"═".repeat(W-2)}╣${C.R}`);
+
+        // HEADER
+        console.log(`\n${P}${C.C}╔${"═".repeat(W-2)}╗${C.R}`);
+        printCenter(`${C.W_B}${I.EYE} TARGET: ${row.Name} (${row.Symbol})`, C.BG_Warn);
+        divider();
+
+        // CONTRACT
+        printCenter(`${C.D}CONTRACT ADDRESS (DOUBLE CLICK TO COPY):${C.R}`);
+        printCenter(`${C.C_B}${row.Address}${C.R}`);
+        divider();
+
+        // METRICS
+        const c1 = 17; const c2 = 18; const c3 = 18; const c4 = 17;
+
+        const l1 = UTILS.padRight("PRICE USD", c1);
+        const l2 = UTILS.padRight("LIQUIDITY", c2);
+        const l3 = UTILS.padRight("FDV (MCAP)", c3);
+        const l4 = UTILS.padRight("LIQ/FDV", c4);
+        printLine(`${C.D}${l1}│ ${l2}│ ${l3}│ ${l4}${C.R}`);
+
+        let priceRaw = row.Price;
+        if (priceRaw === undefined || priceRaw === null) priceRaw = 0;
+        const priceStr = UTILS.formatUSD(priceRaw);
+        
+        const liqStr = `$${UTILS.formatNumber(row.Liquidity || 0)}`;
+        const fdvStr = `$${UTILS.formatNumber(row.FDV || 0)}`;
+        const ratioStr = row.FDV > 0 ? ((row.Liquidity / row.FDV) * 100).toFixed(1) + "%" : "0%";
+
+        const buildCol = (val, w, color) => {
+            const clean = UTILS.strip(String(val));
+            const pad = " ".repeat(Math.max(0, w - clean.length));
+            return `${color}${val}${C.R}${pad}`;
+        };
+
+        const rowVal = 
+            buildCol(priceStr, c1, C.W) + `│ ` + 
+            buildCol(liqStr, c2, C.C) + `│ ` + 
+            buildCol(fdvStr, c3, C.G) + `│ ` + 
+            buildCol(ratioStr, c4, C.M);
+        
+        printLine(rowVal);
+        divider();
+
+        // INFO
+        const half = Math.floor((W - 6) / 2);
+        const printSplit = (k1, v1, k2, v2) => {
+            const key1 = UTILS.padRight(k1, 8);
+            const val1 = UTILS.padRight(v1, half - 9);
+            const key2 = UTILS.padRight(k2, 8);
+            const left = `${C.D}${key1}:${C.R} ${val1}`;
+            const right = `${C.D}${key2}:${C.R} ${v2}`;
+            printLine(`${left}│ ${right}`);
+        };
+
+        const dexName = row.Dex ? row.Dex.toUpperCase() : "UNK";
+        const mintStat = STATE.security.mintAuth ? `${C.Err}DANGR` : `${C.G}SAFE`;
+        const frzStat = STATE.security.freezeAuth ? `${C.Err}DANGR` : `${C.G}SAFE`;
+
+        printSplit("AGE", UTILS.timeSince(row.Age), "GRADE", `[ ${gradeColor}${grade}${C.R} ] ${analysis.riskLevel}`);
+        printSplit("CHAIN", row.Chain.toUpperCase(), "SCORE", `${drawBar(analysis.score, 10, analysis.riskColor)} ${analysis.score}`);
+        printSplit("DEX", dexName, "MINT", mintStat);
+        printSplit("TYPE", row.Type.toUpperCase(), "FREEZ", frzStat);
+
+        divider();
+
+        // CAUTION
+        if (analysis.warnings.length > 0) {
+            const txt = ` ${I.WARN} CAUTION: ${analysis.warnings.join(", ")}`;
+            printCenter(UTILS.padRight(txt, W-2), C.BG_Sel);
+            divider();
+        }
+
+        // HOLDERS
+        printLine(`${C.G_B}TOP HOLDERS DISTRIBUTION${C.R}`);
+        if (STATE.security.loading) {
+            printLine(`${C.D}Scanning blockchain data...${C.R}`);
+        } else {
+            STATE.security.holders.forEach((h, i) => {
+                const idx = `#${i+1}`.padEnd(3);
+                const addr = h.address.substring(0,4) + ".." + h.address.slice(-4);
+                const pct = h.pct.toFixed(2) + "%";
+                const barLen = W - 25; 
+                const bar = drawBar(h.pct, barLen, C.C, "\x1b[2m▒");
+                const line = ` ${idx} ${addr.padEnd(10)} ${bar} ${pct}`;
+                printLine(line);
+            });
+        }
+        divider();
+
+        // LINKS
+        printLine(`${C.G_B}PROJECT CHANNELS${C.R}`);
+        const printLink = (icon, label, url) => {
+            const l = UTILS.padRight(label, 12);
+            const u = UTILS.truncate(url, W - 20);
+            printLine(` ${icon} ${C.Err}${l}${C.R}: ${C.D}${u}${C.R}`);
+        };
+
+        if(row.Socials?.find(s=>s.type==='twitter')) printLink("💬", "TWITTER", row.Socials.find(s=>s.type==='twitter').url);
+        printLink("🦅", "DEXSCREENER", row.Url);
+        printLink("🔍", "SOLSCAN", `https://solscan.io/token/${row.Address}`);
+        printLink("⚡", "PHOTON", `https://photon-sol.tinyastro.io/en/lp/${row.Address}`);
+        printLink("💠", "RAYDIUM", `https://raydium.io/swap/?outputCurrency=${row.Address}`);
+
+        console.log(`${P}${C.C}╚${"═".repeat(W-2)}╝${C.R}`);
+
+        // FOOTER
+        const btn = (txt, bg) => `${bg} ${C.K}${txt} ${C.R}`;
+        const footer = 
+            btn("[ESC] BACK", C.BG_Warn) + " " + 
+            btn("[R] REFRESH", C.BG_Warn) + " " + 
+            btn("[C] COPY ADDR", C.BG_Err) + " " + 
+            btn("[B] BUY (SOON)", "\x1b[44m"); 
+
+        console.log(`${P}${UTILS.center(footer, W+40)}`);
+    }
+};
